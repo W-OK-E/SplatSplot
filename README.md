@@ -38,6 +38,13 @@ Building this pipeline on Apple Silicon (macOS / MPS) presented several heavy co
 **The Problem:** To calculate PSNR, SSIM, and LPIPS, we needed to render our newly cleaned `.ply` models from novel camera views. Doing this natively in Python using the `gsplat` rasterizer was incredibly messy, error-prone, and required complex coordinate system alignments to match the Ground Truth frames perfectly.
 **The Fix:** We completely abandoned the Python rasterizer. Instead, we "tricked" the `opensplat` C++ binary into doing the heavy lifting for us. `02_evaluate_pipeline.py` dynamically calls `opensplat` in "resume mode", feeding it our *cleaned* `.ply` file, and leverages the `--val-render` flag to spit out exactly one perfectly aligned rendered PNG of the validation view. We then load that PNG back into Python to easily calculate our metrics against the ground truth using `torchmetrics` and `pyiqa`.
 
+### 3. Fine-tuning the Object Extraction (The Gamma Dictionary)
+**The Problem:** Using a static strictness threshold across all 12 scenes yielded uneven results. Some scenes like `pipe` and `pikachu` had leftover background floaters because the mask was too forgiving, while scenes like `table` and `art` had pieces of the actual object deleted because the mask was too tight or the object was occluded.
+**The Fix:** We introduced a mathematical voting threshold called `gamma`. We created a `tune.sh` script to rapidly trial-and-error values without running full evaluations, and implemented `02_evaluate_pipeline_tuned.py` with a `SCENE_GAMMAS` dictionary. 
+- **Increase Gamma** (e.g., `0.3`, `0.5`): Makes the filter stricter. Fixes floaters and leftover background (used for `pipe`, `pikachu`, etc.).
+- **Decrease Gamma** (e.g., `-0.2`, `0.0`): Makes the filter more forgiving. Fixes broken surfaces and hollow objects.
+*(Note: As of now, most scenes extract perfectly with fine-tuned gammas, but the `art` and `table` scenes are still **under experimentation** to find their perfect thresholds).*
+
 ---
 
 ## 📋 Evaluation Results
