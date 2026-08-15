@@ -35,3 +35,27 @@ python 02_evaluate_pipeline.py --data-root /path/to/dataset --frames 3
 ```
 
 Use `--device cpu` only for small debugging renders; gsplat rendering is normally CUDA-based. `--frames` uniformly and deterministically samples views, so before/after results are comparable between runs.
+
+## Extract existing checkpoints
+
+For datasets laid out as `<dataset>/<scene>/gsplat_results/ckpts/`, run:
+
+```bash
+bash/run_extract_ckpts.sh /path/to/dl3dv
+```
+
+The runner finds `ckpt_29999_rank0.pt` in every scene, exports its gsplat PLY,
+converts COLMAP binary camera poses when JSON poses are absent, uses
+`masks_latest/`, and writes both the exported and cleaned PLYs under
+`gsplat_results/extraction/`. Pass a different checkpoint filename as the
+second positional argument. Set `GAMMA`, `VIEWS`, or `OVERWRITE=1` as needed.
+
+Render the cleaned models from the same COLMAP camera views for later metric
+calculation (no masks are required for this step):
+
+```bash
+bash/render_extracted_views.sh /path/to/dl3dv
+```
+
+This writes PNGs alongside each cleaned PLY in
+`gsplat_results/extraction/<checkpoint>_cleaned_renders/`. The renderer uses

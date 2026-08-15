@@ -41,11 +41,12 @@ def main():
     parser.add_argument("--ply_out", type=Path, required=True)
     parser.add_argument("--gamma", type=float, default=.1, help="Minimum normalized foreground vote")
     parser.add_argument("--views", type=int, default=-1, help="Evenly sampled cameras; -1 uses all")
+    parser.add_argument("--mask-dir", type=Path, help="Mask directory; defaults to <scene_dir>/masks")
     args = parser.parse_args()
     started, process = time.perf_counter(), psutil.Process()
     if not args.ply_in.exists():
         parser.error(f"missing input PLY: {args.ply_in}")
-    mask_dir = args.scene_dir / "masks"
+    mask_dir = args.mask_dir or args.scene_dir / "masks"
     if not mask_dir.exists():
         parser.error(f"missing SAM2 masks: {mask_dir}")
     properties, cameras = load_ply(args.ply_in), load_cameras(args.scene_dir)
