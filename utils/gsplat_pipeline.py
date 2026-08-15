@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import struct
 
 import numpy as np
 from PIL import Image
@@ -89,7 +90,7 @@ def load_cameras(scene_dir: Path) -> list[dict]:
 
     transforms_path = scene_dir / "transforms.json"
     if not transforms_path.exists():
-        raise FileNotFoundError(f"Expected {cameras_path} or {transforms_path}")
+        return load_colmap_cameras(scene_dir)
     raw = json.loads(transforms_path.read_text())
     cameras = []
     for frame in raw["frames"]:
@@ -104,6 +105,40 @@ def load_cameras(scene_dir: Path) -> list[dict]:
         if fx is None:
             raise ValueError(f"{transforms_path} has no fl_x for {frame['file_path']}")
         cameras.append(_camera(Path(frame["file_path"]).name, width, height, fx, fy, frame.get("cx", raw.get("cx", width / 2)), frame.get("cy", raw.get("cy", height / 2)), world_to_cam[:3, :3], world_to_cam[:3, 3]))
+    return cameras
+
+
+def load_colmap_cameras(scene_dir: Path) -> list[dict]:
+    """Load world-to-camera poses and intrinsics from COLMAP binary sparse files."""
+    sparse_roots = (scene_dir / "colmap" / "sparse", scene_dir / "sparse")
+    model_dir = next((root for root in sparse_roots if (root / "cameras.bin").exists()), None)
+    if model_dir is None:
+        model_dir = next((child for root in sparse_roots if root.exists() for child in root.iterdir()
+                          if child.is_dir() and (child / "cameras.bin").exists()), None)
+    if model_dir is None:
+        raise FileNotFoundError(f"No COLMAP cameras.bin found below {scene_dir}")
+    param_counts = {0: 3, 1: 4, 2: 4, 3: 5, 4: 8, 5: 8, 6: 12, 7: 5, 8: 4, 9: 5, 10: 12}
+    intrinsics = {}
+    with (model_dir / "cameras.bin").open("rb") as file:
+        for _ in range(struct.unpack("<Q", file.read(8))[0]):
+            camera_id, model_id, width, height = struct.unpack("<IiQQ", file.read(24))
+            params = struct.unpack("<" + "d" * param_counts[model_id], file.read(8 * param_counts[model_id]))
+            fx, fy, cx, cy = (params[0], params[0], params[1], params[2]) if model_id in (0, 2, 3, 8, 9) else params[:4]
+            intrinsics[camera_id] = width, height, fx, fy, cx, cy
+    cameras = []
+    with (model_dir / "images.bin").open("rb") as file:
+        for _ in range(struct.unpack("<Q", file.read(8))[0]):
+            values = struct.unpack("<IdddddddI", file.read(64))
+            name = bytearray()
+            while (character := file.read(1)) != b"\0":
+                name.extend(character)
+            points2d = struct.unpack("<Q", file.read(8))[0]
+            file.seek(points2d * 24, 1)
+            qw, qx, qy, qz = values[1:5]
+            rotation = np.array([[1 - 2*qy*qy - 2*qz*qz, 2*qx*qy - 2*qz*qw, 2*qz*qx + 2*qy*qw],
+                                 [2*qx*qy + 2*qz*qw, 1 - 2*qx*qx - 2*qz*qz, 2*qy*qz - 2*qx*qw],
+                                 [2*qz*qx - 2*qy*qw, 2*qy*qz + 2*qx*qw, 1 - 2*qx*qx - 2*qy*qy]], dtype=np.float32)
+            cameras.append(_camera(Path(name.decode()).name, *intrinsics[values[8]], rotation, np.asarray(values[5:8], dtype=np.float32)))
     return cameras
 
 
